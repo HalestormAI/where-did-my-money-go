@@ -19,8 +19,6 @@ def clear_nans(df, col):
 
 def process(payments, statement_date):
     # The columns don't get proper names coming out of tabula, this will name them
-    # and account for the mysterious 5th column that appears in some statements
-
     name_columns(payments)
 
     payments.drop(columns=["junk"], inplace=True)
@@ -28,13 +26,9 @@ def process(payments, statement_date):
     # Set all NaNs to empty strings in the descriptions
     clear_nans(payments, "description")
 
-    # Because we don't know how large this table will be, tabula goes
-    # beyond the end of the table and brings in irrelevant text.
-    # This always starts with "If you do not" in the date column, so
-    # we'll delete that and all subsequent rows.
-    # end_idx = payments.index[payments['date'] == "If you do not"].tolist()
-    # if end_idx:
-    #     payments = payments[payments.index < end_idx]
+    # Because the bounding isn't always 100% correct (particularly as we don't
+    # know how long the table will be in advance), we'll assume any row that
+    # doesn't start with a date is invalid data and can be removed.
 
     def check_date_validity(date_str):
         try:
@@ -46,7 +40,6 @@ def process(payments, statement_date):
             raise err
 
     is_valid_date = payments.date.apply(check_date_validity)
-
     payments = payments.loc[is_valid_date, :]
 
     # Values in the thousands have a comma in them we need to replace

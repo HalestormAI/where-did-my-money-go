@@ -43,6 +43,6 @@ def parse_args():
                         help="Path to the directory containing the datasets (note: search is not recursive")
     parser.add_argument("output_path",
                         help="Path into which to store the CSV (if necessary, will create parent dirs.")
-    parser.add_argument("--num-processors", type=int, default=1,
+    parser.add_argument("--num-processes", type=int, default=1,
                         help="Use multiple processors to speed up statement parsing"),
     return parser.parse_args()
