@@ -1,69 +1,48 @@
-import os
 import glob
-import re
-import datetime
 import multiprocessing
+import os
 
-import tabula
-import tqdm
 import pandas as pd
+import tqdm
 
 import payments
 import utils
-
-date_template_path = "resources/statement-date.json"
-template_path_1page = "resources/getdocument.tabula-template.json"
-template_path_2page = "resources/getdocument.tabula-template-2page.json"
-
-
-def extract_date(df):
-    statement_date_string = df.columns[0]
-    matches = re.search("(\\d{2}/\\d{2}/\\d{4})", statement_date_string)
-
-    if matches is None:
-        raise Exception("Could not parse date from statement")
-
-    return datetime.datetime.strptime(matches[1], "%d/%m/%Y")
+from configs import cc_statement_1
+from parsers import camelot_parser
 
 
 def find_statements(path):
     return sorted(glob.glob(os.path.join(path, "*.pdf")))
 
 
-def parse_statement(filename):
-    # Extract the statement date from the first page
-    ddf = tabula.read_pdf_with_template(filename, date_template_path)
-    statement_date = extract_date(ddf[0])
-
-    # get num pages - this will inform the template that we use
+def parse_statement(parser, statement_config, filename):
+    # get num pages - this will inform the config params that we use
     pages = utils.num_pages(filename)
 
-    # Read pdf into list of DataFrame
-    template_path = template_path_1page if pages < 5 else template_path_2page
-    dfs = tabula.read_pdf_with_template(filename,
-                                        template_path,
-                                        columns=[50, 105, 465, 560],
-                                        pandas_options={
-                                            "header": ["junk", "date", "description", "amount", "credit"]
-                                        })
+    # Extract the statement date from the first page
+    statement_date = parser.date(filename, pages)
 
-    transactions = payments.process(dfs[0], statement_date)
+    tables = parser.transaction_tables(filename, pages)
 
-    # Even if we had enough pages to warrant the larger template,
-    # it doesn't guarantee more transactions. This checks the end of
-    # the transaction table for more results:
-    if transactions.iloc[-1, 2] == "Continued":
-        transactions2 = payments.process(dfs[1], statement_date)
-        transactions.drop(transactions.tail(1).index, inplace=True)
-        transactions = transactions.append(transactions2)
+    transactions = None
+    for i in tables:
+        t = payments.process(i.df, statement_date, statement_config)
+        if transactions is None:
+            transactions = t
+        else:
+            transactions = transactions.append(t)
 
     return statement_date, transactions
 
 
 def single_process(paths):
+    # TODO: These shouldn't be hardcoded
+    config = cc_statement_1
+    parser = camelot_parser.CamelotParser(config)
+
     all_transactions = []
     for f in tqdm.tqdm(paths):
-        date, transactions = parse_statement(f)
+        date, transactions = parse_statement(parser, config, f)
         amount_spent = transactions.amount[transactions.amount > 0].sum()
         amount_paid = -1 * transactions.amount[transactions.amount < 0].sum()
         logger.info(f"{date.strftime('%d/%m/%Y')}: £{amount_spent:.2f} (-£{amount_paid})")
