@@ -17,7 +17,7 @@ def clear_nans(df, col):
     df[col].replace(np.nan, '', regex=True, inplace=True)
 
 
-def process(payments, statement_date):
+def process(payments, statement_date, config):
     # The columns don't get proper names coming out of tabula, this will name them
     name_columns(payments)
 
@@ -30,16 +30,7 @@ def process(payments, statement_date):
     # know how long the table will be in advance), we'll assume any row that
     # doesn't start with a date is invalid data and can be removed.
 
-    def check_date_validity(date_str):
-        try:
-            datetime.datetime.strptime(str(date_str), "%d %b")
-            return True
-        except ValueError as err:
-            if "does not match format" in str(err):
-                return False
-            raise err
-
-    is_valid_date = payments.date.apply(check_date_validity)
+    is_valid_date = payments.date.apply(config.check_date_validity)
     payments = payments.loc[is_valid_date, :]
 
     # Values in the thousands have a comma in them we need to replace
@@ -48,8 +39,11 @@ def process(payments, statement_date):
 
     # Convert the "credit or debit" column to boolean - true if credit
     if "credit" in payments.columns:
-        payments.credit = payments.credit == "CR"
-        amt[payments.credit] = amt[payments.credit].multiply(-1)
+        credit_rows = payments.credit.str.contains("CR")
+        cred = payments.credit[credit_rows].str.replace(" CR", "")
+        cred = cred.str.replace(',', '')
+        cred = pd.to_numeric(cred, errors="coerce").multiply(-1)
+        amt[credit_rows] = cred
         payments.drop(columns=["credit"], inplace=True)
     payments["amount"] = amt
 
